@@ -1,0 +1,26 @@
+{
+  "_lisez_moi": "Prix homologués France. Pour mettre à jour : modifiez une valeur ici, ajustez 'maj', poussez ce fichier sur GitHub. Inutile de toucher au code. Les cigares non distribués en France (ex: padron-1964, horacio-grand-toro) restent gérés dans l'app.",
+  "maj": "1er juin 2026",
+  "prix": {
+    "cohiba-robusto": "90,00 €",
+    "montecristo-no2": "29,50 €",
+    "partagas-d4": "22,70 €",
+    "romeo-wide-churchill": "24,60 €",
+    "hoyo-epicure-2": "21,00 €",
+    "hupmann-magnum-46": "13,80 €",
+    "quai-orsay-54": "18,50 €",
+    "partagas-mille-fleurs": "6,50 €",
+    "davidoff-2000": "18,00 €",
+    "cao-pilon-robusto": "10,80 €",
+    "vegafina-perla": "4,40 €",
+    "montecristo-no4": "13,30 €",
+    "romeo-no3": "9,80 €",
+    "bolivar-belicosos": "24,50 €",
+    "punch-punch": "16,90 €",
+    "trinidad-reyes": "16,50 €",
+    "jlpiedra-cazadores": "3,40 €",
+    "quintero-brevas": "5,20 €",
+    "elreydelmundo-choix": "15,80 €",
+    "ramonallones-specially": "19,50 €"
+  }
+}

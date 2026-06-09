@@ -469,6 +469,13 @@ const CIGAR_DB = [
 ];
 
 // ─────────────────────────────────────────────────────────────
+// Date de l'arrêté des Douanes sur lequel les prix du catalogue
+// ci-dessus sont alignés. ⬇️ À METTRE À JOUR à chaque nouvel
+// arrêté (prix homologués publiés au Journal Officiel).
+// ─────────────────────────────────────────────────────────────
+const PRIX_MAJ = "mars 2026";
+
+// ─────────────────────────────────────────────────────────────
 // COMPOSANT PRINCIPAL
 // ─────────────────────────────────────────────────────────────
 function CigarScanner() {
@@ -477,6 +484,8 @@ function CigarScanner() {
   const [unknown, setUnknown] = useState(null); // identification non présente en base
   const [candidates, setCandidates] = useState(null); // correspondances proposées quand le scan est incertain
   const [lastId, setLastId] = useState(null); // dernière identification renvoyée par la reconnaissance
+  const [catalogue, setCatalogue] = useState(CIGAR_DB); // catalogue affiché (prix éventuellement actualisés via prix.json)
+  const [prixMaj, setPrixMaj] = useState(PRIX_MAJ);     // date d'actualisation des prix affichée
   const [errorMsg, setErrorMsg] = useState(null);
   const [imgUrl, setImgUrl] = useState(null);
   const [query, setQuery] = useState("");
@@ -497,6 +506,35 @@ function CigarScanner() {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) setSaved(JSON.parse(raw));
     } catch (e) { /* stockage indisponible : on continue sans */ }
+  }, []);
+
+  // Charge les prix depuis prix.json (même dossier que l'app) pour actualiser
+  // le catalogue SANS toucher au code. Si le fichier est absent ou illisible,
+  // on garde simplement les prix intégrés : l'app fonctionne toujours.
+  React.useEffect(() => {
+    let annule = false;
+    fetch("prix.json", { cache: "no-cache" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (annule || !data || !data.prix) return;
+        const tarifs = data.prix;
+        const next = CIGAR_DB.map((c) => {
+          if (!Object.prototype.hasOwnProperty.call(tarifs, c.id)) return c;
+          const v = tarifs[c.id];
+          const prix = typeof v === "string" ? v : (v && v.prixFR) || null;
+          const dispo = !!prix && prix !== "--€";
+          return {
+            ...c,
+            prixFR: dispo ? prix : null,
+            dispoFR: dispo,
+            prixAlt: dispo ? null : (c.prixAlt || "--€"),
+          };
+        });
+        setCatalogue(next);
+        if (data.maj) setPrixMaj(data.maj);
+      })
+      .catch(() => { /* hors-ligne ou fichier absent : on garde les prix intégrés */ });
+    return () => { annule = true; };
   }, []);
 
   // Enregistre une fiche corrigée (clé = marque+vitole en minuscules).
@@ -579,7 +617,7 @@ function CigarScanner() {
     );
   };
 
-  const filtered = CIGAR_DB.filter((c) => {
+  const filtered = catalogue.filter((c) => {
     const q = query.trim().toLowerCase();
     if (!q) return true;
     return `${c.marque} ${c.vitole} ${c.origine} ${c.gamme}`.toLowerCase().includes(q);
@@ -671,8 +709,8 @@ function CigarScanner() {
     const v = (id.vitole || "").toLowerCase();
     // 1) marque + vitole, 2) à défaut marque seule
     return (
-      CIGAR_DB.find((c) => c.marque.toLowerCase().includes(m) && v && c.vitole.toLowerCase().includes(v)) ||
-      CIGAR_DB.find((c) => c.marque.toLowerCase().includes(m)) ||
+      catalogue.find((c) => c.marque.toLowerCase().includes(m) && v && c.vitole.toLowerCase().includes(v)) ||
+      catalogue.find((c) => c.marque.toLowerCase().includes(m)) ||
       null
     );
   };
@@ -715,7 +753,7 @@ function CigarScanner() {
   // dédoublonnées par marque|vitole, triées par score décroissant.
   const rankCandidates = (id, n = 3) => {
     if (!id || !id.marque) return [];
-    const pool = [...Object.values(saved), ...CIGAR_DB];
+    const pool = [...Object.values(saved), ...catalogue];
     const seen = new Set();
     const uniq = [];
     pool.forEach((c) => {
@@ -794,13 +832,22 @@ function CigarScanner() {
     }
 
     setScreen("scanning");
+    // Délai maximal : sur réseau mobile lent, on n'attend pas indéfiniment.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
     try {
       const imageBase64 = await fileToBase64(file);
-      const res = await fetch(WORKER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64, mediaType: file.type || "image/jpeg", indice: indice.trim() }),
-      });
+      let res;
+      try {
+        res = await fetch(WORKER_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64, mediaType: file.type || "image/jpeg", indice: indice.trim() }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (!res.ok) throw new Error("Le serveur de reconnaissance a renvoyé une erreur.");
       const id = await res.json();
       setLastId(id);
@@ -846,7 +893,12 @@ function CigarScanner() {
         setScreen("result");
       }
     } catch (err) {
-      setErrorMsg("Impossible de joindre le serveur de reconnaissance. Vérifie l'URL du Worker et ta connexion.");
+      clearTimeout(timeoutId);
+      if (err && err.name === "AbortError") {
+        setErrorMsg("La reconnaissance a mis trop de temps à répondre (réseau lent ?). Réessaie.");
+      } else {
+        setErrorMsg("Impossible de joindre le serveur de reconnaissance. Vérifie l'URL du Worker et ta connexion.");
+      }
       setScreen("home");
     }
   };
@@ -856,7 +908,7 @@ function CigarScanner() {
     setErrorMsg(null);
     setScreen("scanning");
     setTimeout(() => {
-      const pick = CIGAR_DB[Math.floor(Math.random() * CIGAR_DB.length)];
+      const pick = catalogue[Math.floor(Math.random() * catalogue.length)];
       setUnknown(null);
       setResult(pick);
       setScreen("result");
@@ -1067,7 +1119,7 @@ function CigarScanner() {
 
           <div style={styles.recentBlock}>
             <div style={styles.caveHead}>
-              <p style={styles.recentLabel}>Catalogue · {CIGAR_DB.length} cigares</p>
+              <p style={styles.recentLabel}>Catalogue · {catalogue.length} cigares · prix à jour au {prixMaj}</p>
             </div>
             <div style={styles.searchWrap}>
               <Search size={15} style={{ color: "#7a6a52", flexShrink: 0 }} />
@@ -1162,6 +1214,9 @@ function CigarScanner() {
                 {result.dispoFR ? "Prix homologué France" : "Prix France indisponible"}
               </p>
               <p style={styles.priceValue}>{result.dispoFR ? result.prixFR : result.prixAlt}</p>
+              {result.dispoFR && !result.isUserSaved && !result.isAI && (
+                <p style={styles.priceDate}>à jour au {prixMaj}</p>
+              )}
             </div>
             <Coins size={28} style={{ color: result.accent, opacity: 0.8 }} strokeWidth={1.4} />
           </div>
@@ -1263,7 +1318,7 @@ function CigarScanner() {
             </p>
           ) : (
             <p style={styles.disclaimer}>
-              Prix issu des tarifs homologués en France. À actualiser à chaque arrêté du Journal Officiel.
+              Prix issu des tarifs homologués en France (à jour au {prixMaj}). À actualiser à chaque arrêté du Journal Officiel.
             </p>
           )}
         </main>
@@ -2082,6 +2137,7 @@ const styles = {
   },
   disclaimer: { fontSize: 12.5, lineHeight: 1.5, color: "#6b5d49", margin: "20px 24px 0", textAlign: "center" },
   candHint: { fontSize: 13, lineHeight: 1.5, color: "#a89576", margin: "16px 24px 14px", textAlign: "center" },
+  priceDate: { fontSize: 11.5, color: "#7a6a52", margin: "4px 0 0", letterSpacing: "0.02em" },
 };
 
 const globalCss = `

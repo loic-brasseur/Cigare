@@ -610,9 +610,12 @@ function CigarScanner() {
     const m = id.marque.toLowerCase();
     const v = (id.vitole || "").toLowerCase();
     const vals = Object.values(saved);
+    // Correspondance directe UNIQUEMENT si marque ET module concordent.
+    // On ne force plus une fiche de cave sur la marque seule : sinon n'importe
+    // quel « Rocky Patel » lu rappellerait ton Dark Star enregistré. En cas de
+    // module différent, on laisse l'écran de choix proposer la fiche de cave.
     return (
       vals.find((c) => c.marque.toLowerCase().includes(m) && v && c.vitole.toLowerCase().includes(v)) ||
-      vals.find((c) => c.marque.toLowerCase().includes(m)) ||
       null
     );
   };
@@ -760,9 +763,19 @@ function CigarScanner() {
       const k = `${norm(c.marque)}|${norm(c.vitole)}`;
       if (!seen.has(k)) { seen.add(k); uniq.push(c); }
     });
+    const vRead = norm(id.vitole);
+    const hasVit = vRead && vRead !== "—";
     return uniq
       .map((c) => ({ c, s: scoreCandidate(c, id) }))
-      .filter((x) => x.s >= 3) // au moins une vraie correspondance de marque (exclut le bruit « même origine »)
+      // Marque au minimum ; et si un module a été lu, on exige AUSSI une
+      // concordance de module — sinon une autre vitole de la même marque
+      // (ex. ton Dark Star en cave) serait proposée à tort pour un Vintage 1992.
+      .filter((x) => {
+        if (x.s < 3) return false;
+        if (!hasVit) return true;
+        const cv = norm(x.c.vitole);
+        return cv && (cv.includes(vRead) || vRead.includes(cv));
+      })
       .sort((a, b) => b.s - a.s)
       .slice(0, n)
       .map((x) => x.c);
@@ -1041,21 +1054,6 @@ function CigarScanner() {
       {/* Texture / grain overlay */}
       <div style={styles.grain} />
 
-      {/* ───── DEBUG TEMPORAIRE — à retirer une fois le souci réglé ───── */}
-      {lastId && (
-        <pre style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 99999, margin: 0, padding: "8px 10px", background: "rgba(0,0,0,0.92)", color: "#7CFC00", font: "10px/1.35 monospace", maxHeight: "42vh", overflow: "auto", whiteSpace: "pre-wrap", borderTop: "1px solid #444" }}>
-{"— DEBUG WORKER —\n"
- + "version worker (_v): " + ((lastId._diag && lastId._diag._v) || "ABSENT → ancien worker encore en ligne") + "\n"
- + "indice reçu: " + JSON.stringify(lastId._diag && lastId._diag.recu && lastId._diag.recu.hint) + "\n"
- + "image (octets base64): " + ((lastId._diag && lastId._diag.recu && lastId._diag.recu.imgBytes) || 0) + "\n"
- + "marque: " + lastId.marque + "  |  vitole: " + lastId.vitole + "\n"
- + "texte_bague: " + lastId.texte_bague + "\n"
- + "confiance: " + lastId.confiance + "\n"
- + "candidats: " + JSON.stringify(lastId.candidats) + "\n"
- + "modelRaw: " + ((lastId._diag && lastId._diag.modelRaw) || "")}
-        </pre>
-      )}
-
       {/* HEADER */}
       <header style={styles.header}>
         <div style={styles.brandMark}>
@@ -1213,8 +1211,8 @@ function CigarScanner() {
           </button>
 
           <div style={{ ...styles.resultHero, background: `linear-gradient(135deg, ${result.accent}, #2a1d12)` }}>
-            {result.photo && (
-              <img src={result.photo} alt={result.marque} style={styles.resultPhoto} />
+            {(result.photo || scanPhoto || imgUrl) && (
+              <img src={result.photo || scanPhoto || imgUrl} alt={result.marque} style={styles.resultPhoto} />
             )}
             <p style={styles.resultOrigin}>{result.origine}</p>
             <h2 style={styles.resultMarque}>{result.marque}</h2>

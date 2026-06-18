@@ -1041,6 +1041,21 @@ function CigarScanner() {
       {/* Texture / grain overlay */}
       <div style={styles.grain} />
 
+      {/* ───── DEBUG TEMPORAIRE — à retirer une fois le souci réglé ───── */}
+      {lastId && (
+        <pre style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 99999, margin: 0, padding: "8px 10px", background: "rgba(0,0,0,0.92)", color: "#7CFC00", font: "10px/1.35 monospace", maxHeight: "42vh", overflow: "auto", whiteSpace: "pre-wrap", borderTop: "1px solid #444" }}>
+{"— DEBUG WORKER —\n"
+ + "version worker (_v): " + ((lastId._diag && lastId._diag._v) || "ABSENT → ancien worker encore en ligne") + "\n"
+ + "indice reçu: " + JSON.stringify(lastId._diag && lastId._diag.recu && lastId._diag.recu.hint) + "\n"
+ + "image (octets base64): " + ((lastId._diag && lastId._diag.recu && lastId._diag.recu.imgBytes) || 0) + "\n"
+ + "marque: " + lastId.marque + "  |  vitole: " + lastId.vitole + "\n"
+ + "texte_bague: " + lastId.texte_bague + "\n"
+ + "confiance: " + lastId.confiance + "\n"
+ + "candidats: " + JSON.stringify(lastId.candidats) + "\n"
+ + "modelRaw: " + ((lastId._diag && lastId._diag.modelRaw) || "")}
+        </pre>
+      )}
+
       {/* HEADER */}
       <header style={styles.header}>
         <div style={styles.brandMark}>

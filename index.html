@@ -668,6 +668,38 @@ function CigarScanner() {
   const [monInv, setMonInv] = useState({});   // { id: {nom, marque, pays, format, prixPiece, qte, u} }
   const [invEdit, setInvEdit] = useState(null); // id de la ligne ouverte en edition
   const [libre, setLibre] = useState(null);     // formulaire de saisie libre
+  const [enAttenteFumee, setEnAttenteFumee] = useState(null); // cigare en cours de degustation
+  const [derniereFumee, setDerniereFumee] = useState(null);   // pour la marche arriere
+
+  // Debite le stock quand la fiche de degustation est reellement enregistree.
+  const debiterStock = (ficheKey) => {
+    const it = enAttenteFumee;
+    if (!it) return;
+    const next = { ...monInv };
+    if (Number(it.qte) > 1) next[it.id] = { ...it, qte: Number(it.qte) - 1 };
+    else delete next[it.id];
+    persistInv(next);
+    setDerniereFumee({ item: it, ficheKey });   // memorise pour pouvoir revenir en arriere
+    setEnAttenteFumee(null);
+  };
+
+  // Marche arriere : la fiche repart du carnet, le cigare revient dans l'inventaire.
+  const annulerFumee = (info) => {
+    if (!info) return;
+    const it = info.item;
+    const next = { ...monInv };
+    next[it.id] = next[it.id] ? { ...next[it.id], qte: (Number(next[it.id].qte) || 0) + 1 } : it;
+    persistInv(next);
+    if (info.ficheKey) {
+      const restant = { ...saved };
+      delete restant[info.ficheKey];
+      setSaved(restant);
+      try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(restant)); } catch (e) {}
+    }
+    setDerniereFumee(null);
+    setResult(null);
+    setScreen("inventaire");
+  };
 
   const seedInv = () => {
     const seed = {};
@@ -734,15 +766,9 @@ function CigarScanner() {
   // « Fumer » : retire un cigare du stock et ouvre une fiche de degustation
   // pre-remplie, que l'enregistrement fera tomber dans le carnet.
   const fumerLigne = (it) => {
-    // Le cigare quitte le stock : on decremente, et la ligne disparait
-    // de l'inventaire quand c'etait le dernier exemplaire.
-    if (Number(it.qte) > 1) {
-      majQte(it.id, -1);
-    } else {
-      const reste = { ...monInv };
-      delete reste[it.id];
-      persistInv(reste);
-    }
+    // On ne touche PAS au stock ici : si la fiche est abandonnee, rien n'est perdu.
+    // Le debit se fait a l'enregistrement (voir debiterStock).
+    setEnAttenteFumee(it);
     const auj = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
     const ancienne = Object.values(saved).find(
       (c) => `${c.marque} ${c.vitole}`.toLowerCase().trim() === it.nom.toLowerCase().trim()
@@ -1235,6 +1261,7 @@ function CigarScanner() {
     // doit être retirée pour ne pas laisser un doublon fantôme.
     const newKey = `${fiche.marque}|${fiche.vitole}`.toLowerCase().trim();
     persistFiche(fiche, draft.editKey && draft.editKey !== newKey ? draft.editKey : null);
+    if (enAttenteFumee && fiche.deguste) debiterStock(newKey);
     setResult(fiche);
     setUnknown(null);
     setScreen("result");
@@ -1507,7 +1534,26 @@ function CigarScanner() {
                 </div>
               </div>
             ) : (
-              <button style={styles.deleteBtn} onClick={() => setConfirmDelete(true)}>Supprimer cette fiche</button>
+              <>
+                {result.deguste && (
+                  <button
+                    style={styles.remettreBtn}
+                    onClick={() => annulerFumee({
+                      item: (derniereFumee && derniereFumee.item) || {
+                        id: `${result.marque} ${result.vitole}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60),
+                        nom: `${result.marque} ${result.vitole !== "—" ? result.vitole : ""}`.trim(),
+                        marque: result.marque, marqueSrc: result.marque, vitoleSrc: result.vitole,
+                        pays: result.origine || "Autre", format: result.format || "—",
+                        prixPiece: "", prixBoite: null, boite: null,
+                        ring: result.cepo !== "—" ? result.cepo : null,
+                        longueur: null, u: "", qte: 0,
+                      },
+                      ficheKey: `${result.marque}|${result.vitole}`.toLowerCase().trim(),
+                    })}
+                  >Remettre dans l'inventaire</button>
+                )}
+                <button style={styles.deleteBtn} onClick={() => setConfirmDelete(true)}>Supprimer cette fiche</button>
+              </>
             )
           )}
 
@@ -1645,7 +1691,11 @@ function CigarScanner() {
       {screen === "edit" && draft && (
         <main style={styles.editMain} className="fade-up">
           <div style={styles.editHead}>
-            <button style={styles.closeBtn} onClick={() => setScreen("result")} className="close-btn">
+            <button
+              style={styles.closeBtn}
+              onClick={() => { const v = enAttenteFumee; setEnAttenteFumee(null); setDraft(null); setScreen(v || !result ? "inventaire" : "result"); }}
+              className="close-btn"
+            >
               <X size={18} />
             </button>
             <h2 style={styles.editTitle}>Fiche du cigare</h2>
@@ -1786,6 +1836,17 @@ function CigarScanner() {
               {valeurTotale > 0 ? ` · ${eurDe(valeurTotale)}` : ""}
             </p>
           </div>
+
+          {derniereFumee && (
+            <div style={styles.undoBox}>
+              <span style={styles.undoText}>
+                « {derniereFumee.item.nom} » est passé au carnet.
+              </span>
+              <button style={styles.undoBtn} onClick={() => annulerFumee(derniereFumee)}>
+                Annuler
+              </button>
+            </div>
+          )}
 
           <div style={{ padding: "4px 24px 0", display: "flex", gap: 8 }}>
             <button style={styles.invAddBtn} onClick={() => { resetInvFiltres(); setScreen("inv_ajout"); }} className="capture-btn">
@@ -2520,6 +2581,22 @@ const styles = {
     padding: "6px 13px", background: "rgba(196,164,108,0.12)", border: "1px solid rgba(196,164,108,0.4)",
     borderRadius: 20, color: "#e7cd92", fontSize: 13, fontFamily: "'Cormorant Garamond', serif",
     cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+  },
+  undoBox: {
+    margin: "4px 24px 12px", padding: "11px 14px", display: "flex", alignItems: "center",
+    gap: 10, background: "rgba(196,164,108,0.09)", border: "1px solid rgba(196,164,108,0.3)",
+    borderRadius: 3,
+  },
+  undoText: { flex: 1, fontSize: 13.5, color: "#c4b593", fontStyle: "italic", lineHeight: 1.35 },
+  undoBtn: {
+    padding: "6px 14px", borderRadius: 20, background: "rgba(196,164,108,0.16)",
+    border: "1px solid rgba(196,164,108,0.5)", color: "#e7cd92", fontSize: 13,
+    fontFamily: "'Cormorant Garamond', serif", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+  },
+  remettreBtn: {
+    width: "calc(100% - 48px)", margin: "0 24px 10px", padding: "11px 0", background: "transparent",
+    border: "1px solid rgba(196,164,108,0.35)", borderRadius: 3, color: "#c4a46c", fontSize: 14,
+    fontFamily: "'Cormorant Garamond', serif", cursor: "pointer",
   },
   fumerBtn: {
     padding: "5px 11px", borderRadius: 20, background: "rgba(196,164,108,0.12)",

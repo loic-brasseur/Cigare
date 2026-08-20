@@ -889,6 +889,35 @@ function CigarScanner() {
   })();
 
   // Convertit un fichier image en base64 (sans le préfixe data:)
+  // Re-encode la photo en JPEG (max 1600 px) : l'API n'accepte que
+  // jpeg/png/gif/webp, alors que l'iPhone produit du HEIC.
+  const fileToJpegBase64 = (file, maxW) =>
+    new Promise((resolve, reject) => {
+      try {
+        const r = new FileReader();
+        r.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            try {
+              const limite = maxW || 1600;
+              const scale = Math.min(1, limite / Math.max(img.width, img.height));
+              const w = Math.max(1, Math.round(img.width * scale));
+              const h = Math.max(1, Math.round(img.height * scale));
+              const canvas = document.createElement("canvas");
+              canvas.width = w; canvas.height = h;
+              canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+              const url = canvas.toDataURL("image/jpeg", 0.85);
+              resolve(String(url).split(",")[1]);
+            } catch (e) { reject(e); }
+          };
+          img.onerror = () => reject(new Error("Image illisible par le navigateur."));
+          img.src = r.result;
+        };
+        r.onerror = () => reject(new Error("Lecture du fichier impossible."));
+        r.readAsDataURL(file);
+      } catch (e) { reject(e); }
+    });
+
   const fileToBase64 = (file) =>
     new Promise((resolve, reject) => {
       const r = new FileReader();
@@ -1068,13 +1097,14 @@ function CigarScanner() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 20000);
     try {
-      const imageBase64 = await fileToBase64(file);
+      // Toujours du JPEG : on ne fait plus confiance au type annonce par iOS.
+      const imageBase64 = await fileToJpegBase64(file, 1600);
       let res;
       try {
         res = await fetch(WORKER_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64, mediaType: file.type || "image/jpeg", indice: indice.trim() }),
+          body: JSON.stringify({ imageBase64, mediaType: "image/jpeg", indice: indice.trim() }),
           signal: controller.signal,
         });
       } finally {
@@ -1082,7 +1112,7 @@ function CigarScanner() {
       }
       if (!res.ok) {
         let detail = "";
-        try { detail = (await res.text()).slice(0, 160); } catch (e) {}
+        try { detail = (await res.text()).slice(0, 400); } catch (e) {}
         const err = new Error("HTTP " + res.status);
         err.httpStatus = res.status;
         err.httpDetail = detail;

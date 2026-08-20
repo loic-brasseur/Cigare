@@ -1080,7 +1080,14 @@ function CigarScanner() {
       } finally {
         clearTimeout(timeoutId);
       }
-      if (!res.ok) throw new Error("Le serveur de reconnaissance a renvoyé une erreur.");
+      if (!res.ok) {
+        let detail = "";
+        try { detail = (await res.text()).slice(0, 160); } catch (e) {}
+        const err = new Error("HTTP " + res.status);
+        err.httpStatus = res.status;
+        err.httpDetail = detail;
+        throw err;
+      }
       const id = await res.json();
       setLastId(id);
 
@@ -1128,8 +1135,18 @@ function CigarScanner() {
       clearTimeout(timeoutId);
       if (err && err.name === "AbortError") {
         setErrorMsg("La reconnaissance a mis trop de temps à répondre (réseau lent ?). Réessaie.");
+      } else if (err && err.httpStatus) {
+        // Le serveur a bien repondu : c'est lui qui refuse. On montre quoi.
+        setErrorMsg(
+          "Le serveur de reconnaissance a répondu HTTP " + err.httpStatus +
+          (err.httpDetail ? " — " + err.httpDetail : "") +
+          " (le Worker est joignable, c'est son traitement qui échoue : clé API, quota ou image trop lourde)."
+        );
       } else {
-        setErrorMsg("Impossible de joindre le serveur de reconnaissance. Vérifie l'URL du Worker et ta connexion.");
+        setErrorMsg(
+          "Le serveur de reconnaissance est injoignable : " + ((err && err.message) || "erreur réseau") +
+          ". Réseau coupé, ou requête bloquée côté navigateur (CORS)."
+        );
       }
       setScreen("home");
     }
